@@ -9,6 +9,7 @@ import time
 import os
 import tempfile
 import zipfile
+from selenium.webdriver.common.by import By
 
 
 def mypprint(*args, **kwargs):
