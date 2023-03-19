@@ -5,11 +5,36 @@ from selenium import webdriver
 from contextlib import contextmanager
 import numpy as np
 import cv2
-import time
+import time, datetime
 import os
 import tempfile
 import zipfile
 from selenium.webdriver.common.by import By
+
+
+class Timer:
+    def __init__(self):
+        self.start_time = datetime.datetime.now()
+
+    @property
+    def elapsed(self):
+        return datetime.datetime.now() - self.start_time
+
+
+class timed_loop:
+    def __init__(self, *args, **kwds):
+        self._run_time = datetime.timedelta(*args, **kwds)
+        self.i = -1
+        self.timer = Timer()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self.i += 1
+        if self.timer.elapsed < self._run_time:
+            return self.i, self.timer
+        raise StopIteration
 
 
 def mypprint(*args, **kwargs):
@@ -43,7 +68,7 @@ def connect(visible=True, mute=True):
         chrome_options = webdriver.chrome.options.Options()
         if mute:
             chrome_options.add_argument("--mute-audio")
-        chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument("--disable-extensions")
         chrome_options.add_argument("--incognito")
         chrome_options.add_argument("--start-maximized")
         if visible == False:
@@ -51,8 +76,7 @@ def connect(visible=True, mute=True):
         chrome_options.add_argument("--disable-plugins")
         chrome_options.add_argument("--log-level=3")
 
-        driver = webdriver.Chrome(
-            options=chrome_options)
+        driver = webdriver.Chrome(options=chrome_options)
         yield driver
     except Exception as e:
         print("Connection closed, due an error")
@@ -85,17 +109,16 @@ def sleep(seconds):
         time.sleep(seconds - estimated_time)
 
 
-def norm_filename(filename, banned_symbols='|/\\*?:<>"', placeholder='_'):
+def norm_filename(filename, banned_symbols='|/\\*?:<>"', placeholder="_"):
     for i in banned_symbols:
         filename = filename.replace(i, placeholder)
     return filename
 
 
-def update_chromedriver(platform='win32'):
+def update_chromedriver(platform="win32"):
     chromedriver_dir = os.path.realpath("dependencies")
     os.makedirs(chromedriver_dir, exist_ok=True)
-    version_filepath = os.path.join(
-        chromedriver_dir, "chromedriver_version.txt")
+    version_filepath = os.path.join(chromedriver_dir, "chromedriver_version.txt")
     if os.path.exists(version_filepath) and os.path.isfile(version_filepath):
         with open(version_filepath, "r") as f:
             chromedriver_version = f.read()
@@ -108,14 +131,13 @@ def update_chromedriver(platform='win32'):
         latest_version = resp.text
         if chromedriver_version != latest_version:
             filename = "chromedriver_" + platform + ".zip"
-            resp = requests.get(
-                "/".join([base_url, latest_version, filename]))
+            resp = requests.get("/".join([base_url, latest_version, filename]))
             if resp.ok:
                 with tempfile.TemporaryDirectory() as temp:
                     zip_path = os.path.join(temp, filename)
                     with open(zip_path, "wb") as f:
                         f.write(resp.content)
-                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    with zipfile.ZipFile(zip_path, "r") as zip_ref:
                         zip_ref.extractall(chromedriver_dir)
                     with open(version_filepath, "w") as f:
                         f.write(latest_version)
