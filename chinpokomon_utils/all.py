@@ -1,29 +1,33 @@
+import datetime
+import os
+import shutil
+import tempfile
+import time
+import zipfile
+from contextlib import contextmanager
 from pprint import pprint
+
 import bs4
+import cv2
+import numpy as np
 import requests
 from selenium import webdriver
-from contextlib import contextmanager
-import numpy as np
-import cv2
-import time, datetime
-import os
-import tempfile
-import zipfile
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 
 
 class Timer:
     def __init__(self):
-        self.start_time = datetime.datetime.now()
+        self.start_time = time.time()
 
     @property
     def elapsed(self):
-        return datetime.datetime.now() - self.start_time
+        return time.time() - self.start_time
 
 
 class timed_loop:
     def __init__(self, *args, **kwds):
-        self._run_time = datetime.timedelta(*args, **kwds)
+        self._run_time = datetime.timedelta(*args, **kwds).total_seconds()
         self.i = -1
         self.timer = Timer()
 
@@ -43,7 +47,7 @@ def mypprint(*args, **kwargs):
 
 
 def BS(url):
-    return bs4.BeautifulSoup(requests.get(url).content, features="lxml")
+    return bs4.BeautifulSoup(requests.get(url).text, features="lxml")
 
 
 def content2cvimage(content):
@@ -51,8 +55,7 @@ def content2cvimage(content):
     # error if nparr.size == 0
     return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-
-def get_onload(driver, by, element, timeout=3):
+def get_onload(driver, by, element: str, timeout: float=3):
     while not len(driver.find_elements(by, element)) > 0:
         time.sleep(1)
         if timeout > 0:
@@ -64,34 +67,37 @@ def get_onload(driver, by, element, timeout=3):
 
 @contextmanager
 def connect(visible=True, mute=True):
-    try:
-        chrome_options = webdriver.chrome.options.Options()
-        if mute:
-            chrome_options.add_argument("--mute-audio")
-        chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--incognito")
-        chrome_options.add_argument("--start-maximized")
-        if visible == False:
-            chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--disable-plugins")
-        chrome_options.add_argument("--log-level=3")
+    chrome_options = Options()
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--incognito")
+    chrome_options.add_argument("--start-maximized")
+    chrome_options.add_argument("--disable-plugins")
+    chrome_options.add_argument("--log-level=3")
+    if mute:
+        chrome_options.add_argument("--mute-audio")
+    if visible == False:
+        chrome_options.add_argument("--headless")
 
-        driver = webdriver.Chrome(options=chrome_options)
+    # prefs = {"profile.managed_default_content_settings.images": 2}
+    # chrome_options.add_experimental_option("prefs", prefs)
+    # chrome_options.add_experimental_option(
+    #     'excludeSwitches', ['enable-logging'])
+
+    driver = webdriver.Chrome(options=chrome_options)
+    try:
         yield driver
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print("Connection closed, due an error")
         print(e)
     finally:
-        try:
-            driver.quit()
-        except:
-            pass
+        driver.quit()
+
 
 
 def create_session(driver=None, visible=False):
     if driver == None:
-        with connect(visible) as driver:
-            cookies = driver.get_cookies()
+        with connect(visible) as d:
+            cookies = d.get_cookies()
     else:
         cookies = driver.get_cookies()
     session = requests.Session()
@@ -114,31 +120,33 @@ def norm_filename(filename, banned_symbols='|/\\*?:<>"', placeholder="_"):
         filename = filename.replace(i, placeholder)
     return filename
 
-
-def update_chromedriver(platform="win32"):
-    chromedriver_dir = os.path.realpath("dependencies")
+# platforms: linux-arm64, linux64, mac-arm64, mac-x64, win32, win64
+def update_chromedriver(platform="win64", chromedriver_dir="dependencies"):
+    chromedriver_dir = os.path.realpath(chromedriver_dir)
     os.makedirs(chromedriver_dir, exist_ok=True)
-    version_filepath = os.path.join(chromedriver_dir, "chromedriver_version.txt")
+    version_filepath = os.path.join(
+        chromedriver_dir, "chromedriver_version.txt")
     if os.path.exists(version_filepath) and os.path.isfile(version_filepath):
         with open(version_filepath, "r") as f:
             chromedriver_version = f.read()
     else:
         with open(version_filepath, "w") as f:
             chromedriver_version = None
-    base_url = "https://chromedriver.storage.googleapis.com"
-    resp = requests.get("/".join([base_url, "LATEST_RELEASE"]))
+    resp = requests.get("https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_STABLE") # version_url
     if resp.ok:
         latest_version = resp.text
         if chromedriver_version != latest_version:
-            filename = "chromedriver_" + platform + ".zip"
-            resp = requests.get("/".join([base_url, latest_version, filename]))
+            download_base_url = "https://storage.googleapis.com/chrome-for-testing-public"
+            filename = "chromedriver-" + platform + ".zip"
+            resp = requests.get(f"{download_base_url}/{latest_version}/{platform}/{filename}") # download_url
             if resp.ok:
                 with tempfile.TemporaryDirectory() as temp:
                     zip_path = os.path.join(temp, filename)
                     with open(zip_path, "wb") as f:
                         f.write(resp.content)
-                    with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                        zip_ref.extractall(chromedriver_dir)
+                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                        zip_ref.extract(f"chromedriver-{platform}/chromedriver.exe", path=temp)
+                    shutil.move(os.path.join(temp, f"chromedriver-{platform}/chromedriver.exe"), os.path.join(chromedriver_dir, "chromedriver.exe"))
                     with open(version_filepath, "w") as f:
                         f.write(latest_version)
     os.environ["PATH"] += ";" + chromedriver_dir
